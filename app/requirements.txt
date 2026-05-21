@@ -1,0 +1,1 @@
+# Pinned versions added in step 6 (Hugging Face deployment).

@@ -1,0 +1,33 @@
+# Data (Kaggle raw CSVs + combined are large — don't commit)
+data/*.csv
+data/*.zip
+data/LICENSE
+data/README.txt
+!data/.gitkeep
+
+# Models (binaries, regenerated from train.py)
+models/*.pkl
+models/*.joblib
+models/*.json
+!models/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Envs
+.env
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/

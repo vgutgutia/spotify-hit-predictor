@@ -1,1 +1,10 @@
-# Pinned versions added in step 6 (Hugging Face deployment).
+# Bare names for now — version pinning happens in step 6 for the HF Spaces deploy.
+streamlit
+shap
+spotipy
+xgboost
+scikit-learn
+pandas
+numpy
+matplotlib
+joblib

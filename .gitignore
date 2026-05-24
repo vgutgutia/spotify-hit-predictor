@@ -5,11 +5,8 @@ data/LICENSE
 data/README.txt
 !data/.gitkeep
 
-# Models (binaries, regenerated from train.py)
-models/*.pkl
-models/*.joblib
-models/*.json
-!models/.gitkeep
+# Models — tracked (small enough to ship with the repo for HF Spaces deploy).
+# If we add large intermediate dumps later, ignore them specifically here.
 
 # Python
 __pycache__/

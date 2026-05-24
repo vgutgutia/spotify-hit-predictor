@@ -1,0 +1,30 @@
+{
+  "winner": "XGBoost",
+  "selection_metric": "roc_auc",
+  "models": [
+    {
+      "model": "LogisticRegression",
+      "accuracy": 0.741425443930917,
+      "precision": 0.7103199830472557,
+      "recall": 0.8153733884699587,
+      "f1": 0.7592298980747452,
+      "roc_auc": 0.8169858430499634
+    },
+    {
+      "model": "RandomForest",
+      "accuracy": 0.807467769399173,
+      "precision": 0.7810137839039573,
+      "recall": 0.8545366090975431,
+      "f1": 0.8161226623301197,
+      "roc_auc": 0.887783699493045
+    },
+    {
+      "model": "XGBoost",
+      "accuracy": 0.8148868888348334,
+      "precision": 0.7881148453149344,
+      "recall": 0.861347603989297,
+      "f1": 0.8231055323105533,
+      "roc_auc": 0.8899430963471049
+    }
+  ]
+}

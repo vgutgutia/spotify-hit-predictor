@@ -1,3 +1,16 @@
+---
+title: Spotify Hit Predictor
+emoji: 🎵
+colorFrom: green
+colorTo: blue
+sdk: streamlit
+sdk_version: 1.56.0
+app_file: app/app.py
+pinned: false
+license: mit
+short_description: Predict Billboard Hot-100 hits from Spotify audio features
+---
+
 # Spotify Hit Predictor
 
 Predict whether a song will land on the Billboard Hot-100 from its Spotify audio features (danceability, energy, valence, tempo, etc.).

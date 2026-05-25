@@ -235,43 +235,55 @@ with tab_sliders:
         "Drag the sliders to design a song, then see if our model thinks it'd hit."
     )
 
-    col_left, col_right = st.columns(2)
-    numeric_values: dict[str, float] = {}
+    # Wrapping the widgets in a form means Streamlit only reruns the script
+    # (and the SHAP + matplotlib pipeline) when "Predict" is clicked, not on
+    # every slider micro-movement. Without this the page visibly flickers.
+    with st.form("sliders_form"):
+        col_left, col_right = st.columns(2)
+        numeric_values: dict[str, float] = {}
 
-    half = len(NUMERIC_FEATURES) // 2 + len(NUMERIC_FEATURES) % 2
-    left_feats, right_feats = NUMERIC_FEATURES[:half], NUMERIC_FEATURES[half:]
+        half = len(NUMERIC_FEATURES) // 2 + len(NUMERIC_FEATURES) % 2
+        left_feats, right_feats = NUMERIC_FEATURES[:half], NUMERIC_FEATURES[half:]
 
-    for column, feats in ((col_left, left_feats), (col_right, right_feats)):
-        with column:
-            for feat in feats:
-                lo, hi, default = SLIDER_RANGES[feat]
-                if feat in ("mode", "time_signature", "sections", "duration_ms"):
-                    numeric_values[feat] = st.slider(
-                        feat, int(lo), int(hi), int(default), key=f"s_{feat}"
-                    )
-                else:
-                    numeric_values[feat] = st.slider(
-                        feat, float(lo), float(hi), float(default), key=f"s_{feat}"
-                    )
+        for column, feats in ((col_left, left_feats), (col_right, right_feats)):
+            with column:
+                for feat in feats:
+                    lo, hi, default = SLIDER_RANGES[feat]
+                    if feat in ("mode", "time_signature", "sections", "duration_ms"):
+                        numeric_values[feat] = st.slider(
+                            feat, int(lo), int(hi), int(default), key=f"s_{feat}"
+                        )
+                    else:
+                        numeric_values[feat] = st.slider(
+                            feat, float(lo), float(hi), float(default), key=f"s_{feat}"
+                        )
 
-    col_k, col_d = st.columns(2)
-    with col_k:
-        key_choice = st.selectbox(
-            "key",
-            options=list(range(12)),
-            index=0,
-            format_func=lambda i: f"{i} — {KEY_NAMES[i]}",
+        col_k, col_d = st.columns(2)
+        with col_k:
+            key_choice = st.selectbox(
+                "key",
+                options=list(range(12)),
+                index=0,
+                format_func=lambda i: f"{i} — {KEY_NAMES[i]}",
+            )
+        with col_d:
+            decade_choice = st.selectbox("decade", options=DECADES, index=5)
+
+        submitted = st.form_submit_button(
+            "🎯  Predict", type="primary", use_container_width=True
         )
-    with col_d:
-        decade_choice = st.selectbox("decade", options=DECADES, index=5)
 
-    raw_df = build_feature_row(numeric_values, key_choice, decade_choice, feature_columns)
-    proba, contribs = predict_and_explain(
-        raw_df, model, scaler, feature_columns, explainer
-    )
-
-    st.divider()
-    render_prediction(proba, contribs)
+    if submitted:
+        raw_df = build_feature_row(
+            numeric_values, key_choice, decade_choice, feature_columns
+        )
+        proba, contribs = predict_and_explain(
+            raw_df, model, scaler, feature_columns, explainer
+        )
+        st.divider()
+        render_prediction(proba, contribs)
+    else:
+        st.info("Adjust the sliders above, then click **Predict**.")
 
 
 # -------- TAB 2: Spotify URL ---------------------------------------------

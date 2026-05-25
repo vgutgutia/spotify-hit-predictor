@@ -282,13 +282,20 @@ with tab_url:
         "same model on them."
     )
 
-    # st.secrets raises if no secrets.toml exists at all (not just missing keys),
-    # so guard with try/except — the Sliders tab should work without creds.
-    try:
-        client_id = st.secrets.get("SPOTIFY_CLIENT_ID", "")
-        client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET", "")
-    except Exception:
-        client_id = client_secret = ""
+    # st.secrets raises if no secrets.toml exists at all. Fall back to env
+    # vars so HF Spaces' Docker SDK (which exposes secrets as env vars rather
+    # than a TOML file) works too.
+    import os
+    def _secret(key: str) -> str:
+        try:
+            v = st.secrets.get(key, "")
+            if v:
+                return v
+        except Exception:
+            pass
+        return os.environ.get(key, "")
+    client_id = _secret("SPOTIFY_CLIENT_ID")
+    client_secret = _secret("SPOTIFY_CLIENT_SECRET")
 
     if not client_id or not client_secret:
         st.warning(

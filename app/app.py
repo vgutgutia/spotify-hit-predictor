@@ -1,18 +1,16 @@
 """Streamlit app for the Spotify Hit Predictor.
 
-Three tabs:
-  1. Sliders        — manually set audio features → live prediction
-  2. Spotify URL    — paste a track URL, app fetches features via spotipy
-  3. About          — model summary + global feature-importance chart
+Two tabs:
+  1. Sliders  — pick an example song from the dataset (or design one from
+                scratch), tweak the audio-feature sliders, and predict.
+  2. About    — model summary + global feature-importance chart.
 
-Both prediction modes render a verdict (hit/flop), the hit probability, and
-a SHAP-based breakdown of which features pushed THIS song toward / away from
-being a hit.
+Each prediction shows a verdict (hit/flop), the hit probability, and a SHAP
+breakdown of which features pushed THIS song toward / away from being a hit.
 """
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import joblib
@@ -55,6 +53,70 @@ DECADES = ["60s", "70s", "80s", "90s", "00s", "10s"]
 KEY_NAMES = ["C", "C♯/D♭", "D", "D♯/E♭", "E", "F", "F♯/G♭",
              "G", "G♯/A♭", "A", "A♯/B♭", "B"]
 
+# Real songs from the dataset (preserves actual feature values). Picking
+# mostly famous artists so the demo lands — the actual hit/flop label is
+# shown in parentheses, and the model's prediction should match.
+EXAMPLE_SONGS: dict[str, dict] = {
+    "🎵 Can't Buy Me Love — The Beatles (60s, hit)": {
+        "decade": "60s", "key": 0,
+        "numeric": {"danceability": 0.844, "energy": 0.299, "loudness": -12.645,
+                    "speechiness": 0.0621, "acousticness": 0.848,
+                    "instrumentalness": 0.844, "liveness": 0.102, "valence": 0.566,
+                    "tempo": 102.088, "duration_ms": 131176, "chorus_hit": 20.009,
+                    "sections": 6, "mode": 1, "time_signature": 4},
+    },
+    "🎵 Miss You — The Rolling Stones (70s, hit)": {
+        "decade": "70s", "key": 9,
+        "numeric": {"danceability": 0.795, "energy": 0.710, "loudness": -4.746,
+                    "speechiness": 0.0392, "acousticness": 0.443,
+                    "instrumentalness": 0.0215, "liveness": 0.344, "valence": 0.845,
+                    "tempo": 109.689, "duration_ms": 288667, "chorus_hit": 45.452,
+                    "sections": 15, "mode": 0, "time_signature": 4},
+    },
+    "🎵 Billie Jean — Michael Jackson (80s, hit)": {
+        "decade": "80s", "key": 11,
+        "numeric": {"danceability": 0.920, "energy": 0.654, "loudness": -3.051,
+                    "speechiness": 0.0401, "acousticness": 0.0236,
+                    "instrumentalness": 0.0158, "liveness": 0.0359, "valence": 0.847,
+                    "tempo": 117.046, "duration_ms": 293827, "chorus_hit": 29.591,
+                    "sections": 14, "mode": 0, "time_signature": 4},
+    },
+    "🎵 My Name Is — Eminem (90s, hit)": {
+        "decade": "90s", "key": 1,
+        "numeric": {"danceability": 0.869, "energy": 0.680, "loudness": -6.233,
+                    "speechiness": 0.318, "acousticness": 0.0416,
+                    "instrumentalness": 1.12e-06, "liveness": 0.0914, "valence": 0.815,
+                    "tempo": 85.519, "duration_ms": 268400, "chorus_hit": 101.419,
+                    "sections": 8, "mode": 1, "time_signature": 4},
+    },
+    "🎵 Hotline Bling — Drake (10s, hit)": {
+        "decade": "10s", "key": 2,
+        "numeric": {"danceability": 0.891, "energy": 0.625, "loudness": -7.861,
+                    "speechiness": 0.0558, "acousticness": 0.00261,
+                    "instrumentalness": 0.000176, "liveness": 0.0504,
+                    "valence": 0.548, "tempo": 134.967, "duration_ms": 267067,
+                    "chorus_hit": 69.390, "sections": 8, "mode": 1, "time_signature": 4},
+    },
+    "💀 River Man — Nick Drake (60s, flop)": {
+        "decade": "60s", "key": 8,
+        "numeric": {"danceability": 0.474, "energy": 0.118, "loudness": -20.098,
+                    "speechiness": 0.0339, "acousticness": 0.852,
+                    "instrumentalness": 0.735, "liveness": 0.112, "valence": 0.0921,
+                    "tempo": 114.520, "duration_ms": 258680, "chorus_hit": 39.473,
+                    "sections": 18, "mode": 1, "time_signature": 5},
+    },
+    "💀 3's & 7's — Queens of the Stone Age (00s, flop)": {
+        "decade": "00s", "key": 10,
+        "numeric": {"danceability": 0.438, "energy": 0.990, "loudness": -3.890,
+                    "speechiness": 0.108, "acousticness": 0.0651,
+                    "instrumentalness": 0.0222, "liveness": 0.359, "valence": 0.452,
+                    "tempo": 131.306, "duration_ms": 214067, "chorus_hit": 40.384,
+                    "sections": 9, "mode": 0, "time_signature": 4},
+    },
+}
+
+START_FRESH = "— start fresh —"
+
 
 # ---------------------------------------------------------------- artifacts --
 
@@ -91,7 +153,6 @@ def predict_and_explain(
     scaled[NUMERIC_FEATURES] = scaler.transform(scaled[NUMERIC_FEATURES])
     proba = float(model.predict_proba(scaled)[0, 1])
     shap_values = explainer.shap_values(scaled)
-    # XGBoost binary: shap_values shape (1, n_features)
     contribs = pd.Series(np.asarray(shap_values)[0], index=feature_columns)
     return proba, contribs
 
@@ -122,95 +183,7 @@ def render_prediction(proba: float, contribs: pd.Series) -> None:
     ax.spines["right"].set_visible(False)
     plt.tight_layout()
     st.pyplot(fig)
-
-
-# ----------------------------------------------------------- spotify utils --
-
-TRACK_ID_RE = re.compile(
-    r"(?:spotify:track:|open\.spotify\.com/(?:intl-[a-z]+/)?track/)([A-Za-z0-9]{22})"
-)
-
-
-def extract_track_id(s: str) -> str | None:
-    s = s.strip()
-    m = TRACK_ID_RE.search(s)
-    if m:
-        return m.group(1)
-    if re.fullmatch(r"[A-Za-z0-9]{22}", s):
-        return s
-    return None
-
-
-def year_to_decade(year: int) -> str:
-    if year < 1970:
-        return "60s"
-    if year < 1980:
-        return "70s"
-    if year < 1990:
-        return "80s"
-    if year < 2000:
-        return "90s"
-    if year < 2010:
-        return "00s"
-    return "10s"
-
-
-@st.cache_data(show_spinner=False)
-def fetch_spotify_features(track_id: str, _client_id: str, _client_secret: str):
-    """Pull audio features + audio analysis + release year for a Spotify track.
-
-    Returns a dict with the same keys the model expects, plus track/artist names.
-    """
-    import spotipy
-    from spotipy.oauth2 import SpotifyClientCredentials
-
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyClientCredentials(
-            client_id=_client_id, client_secret=_client_secret
-        ),
-        requests_timeout=15,
-    )
-
-    features = sp.audio_features([track_id])[0]
-    if features is None:
-        raise RuntimeError("Spotify returned no audio features for this track.")
-
-    track = sp.track(track_id)
-    release_date = track["album"]["release_date"]
-    year = int(release_date.split("-")[0])
-
-    try:
-        analysis = sp.audio_analysis(track_id)
-        sections = analysis.get("sections", [])
-        sections_count = len(sections)
-        chorus_hit = float(sections[1]["start"]) if len(sections) > 1 else 0.0
-    except Exception:
-        sections_count = 0
-        chorus_hit = 0.0
-
-    return {
-        "track_name": track["name"],
-        "artist_name": ", ".join(a["name"] for a in track["artists"]),
-        "release_year": year,
-        "decade": year_to_decade(year),
-        "key": int(features["key"]),
-        "numeric": {
-            "danceability": float(features["danceability"]),
-            "energy": float(features["energy"]),
-            "loudness": float(features["loudness"]),
-            "speechiness": float(features["speechiness"]),
-            "acousticness": float(features["acousticness"]),
-            "instrumentalness": float(features["instrumentalness"]),
-            "liveness": float(features["liveness"]),
-            "valence": float(features["valence"]),
-            "tempo": float(features["tempo"]),
-            "duration_ms": int(features["duration_ms"]),
-            "chorus_hit": float(chorus_hit),
-            "sections": int(sections_count),
-            "mode": int(features["mode"]),
-            "time_signature": int(features["time_signature"]),
-        },
-    }
+    plt.close(fig)
 
 
 # ----------------------------------------------------------------- layout --
@@ -225,15 +198,35 @@ st.caption(
 
 model, scaler, feature_columns, metrics, explainer = load_artifacts()
 
-tab_sliders, tab_url, tab_about = st.tabs(
-    ["🎚️  Sliders", "🔗  Spotify URL", "ℹ️  About"]
-)
+tab_sliders, tab_about = st.tabs(["🎚️  Sliders", "ℹ️  About"])
 
 # -------- TAB 1: Sliders --------------------------------------------------
 with tab_sliders:
     st.markdown(
-        "Drag the sliders to design a song, then see if our model thinks it'd hit."
+        "Pick a famous song from the dataset to pre-fill the sliders, then "
+        "tweak whatever you want and hit **Predict**. Or pick *start fresh* "
+        "and design a hypothetical song from scratch."
     )
+
+    # Example selector lives OUTSIDE the form so it triggers a rerun and
+    # prefills the slider session_state before the form re-renders.
+    example_choice = st.selectbox(
+        "Load an example song",
+        options=[START_FRESH] + list(EXAMPLE_SONGS.keys()),
+        key="example_choice",
+    )
+
+    if (
+        example_choice != START_FRESH
+        and st.session_state.get("_last_loaded") != example_choice
+    ):
+        song = EXAMPLE_SONGS[example_choice]
+        for feat, val in song["numeric"].items():
+            st.session_state[f"s_{feat}"] = val
+        st.session_state["sliders_key"] = song["key"]
+        st.session_state["sliders_decade"] = song["decade"]
+        st.session_state["_last_loaded"] = example_choice
+        st.rerun()
 
     # Wrapping the widgets in a form means Streamlit only reruns the script
     # (and the SHAP + matplotlib pipeline) when "Predict" is clicked, not on
@@ -263,11 +256,13 @@ with tab_sliders:
             key_choice = st.selectbox(
                 "key",
                 options=list(range(12)),
-                index=0,
+                key="sliders_key",
                 format_func=lambda i: f"{i} — {KEY_NAMES[i]}",
             )
         with col_d:
-            decade_choice = st.selectbox("decade", options=DECADES, index=5)
+            decade_choice = st.selectbox(
+                "decade", options=DECADES, key="sliders_decade"
+            )
 
         submitted = st.form_submit_button(
             "🎯  Predict", type="primary", use_container_width=True
@@ -283,97 +278,10 @@ with tab_sliders:
         st.divider()
         render_prediction(proba, contribs)
     else:
-        st.info("Adjust the sliders above, then click **Predict**.")
+        st.info("Adjust the sliders above (or load an example), then click **Predict**.")
 
 
-# -------- TAB 2: Spotify URL ---------------------------------------------
-with tab_url:
-    st.markdown(
-        "Paste a Spotify track URL (or `spotify:track:…` URI, or just the 22-char ID). "
-        "The app pulls the song's actual audio features from Spotify, then runs the "
-        "same model on them."
-    )
-    st.warning(
-        "⚠️  **Heads up**: Spotify deprecated the `audio-features` endpoint for "
-        "developer apps registered after November 2024. If your Spotify app isn't "
-        "in extended-quota mode, this tab will return a 403 — that's a Spotify "
-        "policy issue, not a bug in the app. The **Sliders** tab works without "
-        "any external API."
-    )
-
-    # st.secrets raises if no secrets.toml exists at all. Fall back to env
-    # vars so HF Spaces' Docker SDK (which exposes secrets as env vars rather
-    # than a TOML file) works too.
-    import os
-    def _secret(key: str) -> str:
-        try:
-            v = st.secrets.get(key, "")
-            if v:
-                return v
-        except Exception:
-            pass
-        return os.environ.get(key, "")
-    client_id = _secret("SPOTIFY_CLIENT_ID")
-    client_secret = _secret("SPOTIFY_CLIENT_SECRET")
-
-    if not client_id or not client_secret:
-        st.warning(
-            "⚠️  Spotify credentials not configured. Add `SPOTIFY_CLIENT_ID` and "
-            "`SPOTIFY_CLIENT_SECRET` to `.streamlit/secrets.toml` locally, or to "
-            "the HF Space's secrets. (See README for the schema.) "
-            "The Sliders tab still works without credentials."
-        )
-    else:
-        url = st.text_input(
-            "Spotify track URL",
-            placeholder="https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6",
-        )
-        go = st.button("Predict", type="primary")
-
-        if go and url:
-            track_id = extract_track_id(url)
-            if not track_id:
-                st.error("Couldn't parse a Spotify track ID out of that input.")
-            else:
-                try:
-                    with st.spinner("Fetching features from Spotify…"):
-                        info = fetch_spotify_features(track_id, client_id, client_secret)
-                except Exception as e:
-                    msg = str(e)
-                    if "403" in msg:
-                        st.error(
-                            "Spotify returned **403 Forbidden** on the "
-                            "`audio-features` endpoint. This means your "
-                            "Spotify developer app doesn't have access to "
-                            "that endpoint — almost certainly because Spotify "
-                            "deprecated it for new apps in Nov 2024. There's "
-                            "nothing wrong with your credentials. Use the "
-                            "**Sliders** tab to design a song manually instead."
-                        )
-                    else:
-                        st.error(f"Spotify API error: {e}")
-                else:
-                    st.subheader(f"🎶  {info['track_name']}")
-                    st.caption(
-                        f"{info['artist_name']}  •  released {info['release_year']}  "
-                        f"•  decade bucket: **{info['decade']}**  "
-                        f"•  key: **{KEY_NAMES[info['key']]}**"
-                    )
-
-                    with st.expander("Fetched audio features"):
-                        st.json(info["numeric"])
-
-                    raw_df = build_feature_row(
-                        info["numeric"], info["key"], info["decade"], feature_columns
-                    )
-                    proba, contribs = predict_and_explain(
-                        raw_df, model, scaler, feature_columns, explainer
-                    )
-                    st.divider()
-                    render_prediction(proba, contribs)
-
-
-# -------- TAB 3: About ----------------------------------------------------
+# -------- TAB 2: About ----------------------------------------------------
 with tab_about:
     st.markdown(
         """
@@ -418,5 +326,10 @@ with tab_about:
           artist's prior fame, marketing budget, music video, or release timing,
           all of which arguably matter more than the audio itself.
         - The dataset stops at 2019; tastes since then aren't represented.
+        - Originally this app also had a "paste a Spotify URL" mode that fetched
+          features directly from the Spotify Web API, but Spotify deprecated
+          the `audio-features` endpoint for new developer apps in November 2024.
+          The example-song selector above replaces that functionality using real
+          rows from the training dataset.
         """
     )

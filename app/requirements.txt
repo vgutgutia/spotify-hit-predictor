@@ -1,6 +1,5 @@
 streamlit==1.56.0
 shap==0.51.0
-spotipy==2.25.2
 xgboost==1.6.0
 scikit-learn==1.8.0
 pandas==2.3.3

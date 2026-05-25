@@ -60,30 +60,52 @@ After preprocessing, every song is a 32-dimensional vector: 14 standardized nume
 
 ## Model Info
 
-I trained three models from scratch on the prepared 32,884-row training fold. Nothing pretrained.
+I trained four models from scratch on the prepared 32,884-row training fold. Nothing pretrained.
 
 | Model | Hyperparameters | Approximate parameter count |
 |---|---|---|
 | Logistic Regression | `max_iter=1000`, L2 penalty (default), `random_state=42` | 33 (32 weights + 1 bias) |
 | Random Forest | `n_estimators=300`, default depth, `random_state=42`, `n_jobs=-1` | ~300 trees of a few thousand nodes each, so ~10^6 split decisions |
 | XGBoost | `n_estimators=300`, `learning_rate=0.1`, `eval_metric="logloss"`, `random_state=42`, `n_jobs=-1` | ~300 boosted trees of depth 6 (default), also ~10^5 to 10^6 effective parameters |
+| MLP (PyTorch) | 2 hidden layers (64, 32 units), ReLU + Dropout(0.2), Adam lr=1e-3, batch=256, 40 epochs, BCE-with-logits loss, `random_state=42` | 4,225 trainable parameters |
 
-No hyperparameter tuning - I wanted to compare the three algorithms on sensible defaults, not on how much effort I spent tuning each one. `random_state=42` everywhere for reproducibility.
+No hyperparameter tuning - I wanted to compare the four algorithms on sensible defaults, not on how much effort I spent tuning each one. `random_state=42` everywhere for reproducibility.
 
 ## Architecture
 
-There isn't a neural network here, so the "architecture" is really the data pipeline:
+The overall pipeline:
 
 1. Load and concatenate the six decade CSVs into `combined.csv` (41,106 rows, 20 columns).
 2. Drop the three ID columns.
 3. One-hot encode `key` and `decade`, giving 32 features plus the target.
 4. Stratified 80/20 train/test split with `random_state=42`.
 5. Fit `StandardScaler` on the train fold only, transform both folds.
-6. Fit LR, RF, and XGBoost on the training fold, evaluate each on the test fold.
-7. Pick the winner by ROC-AUC, save `best_model.pkl`, `scaler.pkl`, `feature_columns.json`, and `metrics.json` to `models/`.
+6. Fit LR, RF, XGBoost, and the MLP on the training fold, evaluate each on the test fold.
+7. Pick the best tree-based model by ROC-AUC, save `best_model.pkl`, `scaler.pkl`, `feature_columns.json`, and `metrics.json` to `models/`.
 8. The Streamlit app loads the saved artifacts, takes the user's slider values, rebuilds the feature vector in the same column order the model was trained on, scales it with the saved scaler, calls `predict_proba`, and explains the result with `shap.TreeExplainer`.
 
-The decisions I made along the way:
+### MLP architecture
+
+The MLP is the one model in the comparison that has a real neural architecture worth describing. I built it in PyTorch as a small feedforward network:
+
+```
+Input  (32 features)
+   |
+   v
+Linear (32 -> 64)   --> ReLU --> Dropout(0.2)     [hidden layer 1]
+   |
+   v
+Linear (64 -> 32)   --> ReLU --> Dropout(0.2)     [hidden layer 2]
+   |
+   v
+Linear (32 -> 1)    --> sigmoid (at inference)    [output]
+```
+
+Total: 4,225 trainable parameters. Trained with Adam (lr=1e-3), `BCEWithLogitsLoss` (numerically stable form of binary cross-entropy), batch size 256, for 40 epochs. Dropout helps regularize since 32k training rows isn't a huge amount of data for a network with this many parameters.
+
+I picked 2 hidden layers because the input is only 32 features and the target is binary - deeper networks would just be overkill on a problem this size and would risk overfitting. The 64 -> 32 funnel shape is a standard "compress toward the decision" choice.
+
+### Other decisions I made along the way:
 
 - Fit the scaler on the train fold only, to avoid leaking test statistics into training.
 - One-hot encode `key` and `decade` instead of treating them as numeric, since neither is ordinal.
@@ -97,6 +119,7 @@ I evaluated all three models on the held-out 8,222-song test fold and reported f
 | Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|---|
 | Logistic Regression | 0.7414 | 0.7103 | 0.8154 | 0.7592 | 0.8170 |
+| MLP (2 hidden layers) | 0.8059 | 0.7816 | 0.8489 | 0.8139 | 0.8824 |
 | Random Forest | 0.8075 | 0.7810 | 0.8545 | 0.8161 | 0.8878 |
 | XGBoost (winner) | 0.8149 | 0.7881 | 0.8613 | 0.8231 | 0.8899 |
 
@@ -107,11 +130,13 @@ Why these five:
 - F1 is a single-number balance of precision and recall.
 - ROC-AUC measures how well the model separates the two classes regardless of where you set the decision threshold. It's the most informative single number for binary classification, so I used it to pick the winner.
 
-XGBoost won by ROC-AUC (0.8899 vs RF 0.8878 vs LR 0.8170).
+XGBoost won by ROC-AUC (0.8899 vs RF 0.8878 vs MLP 0.8824 vs LR 0.8170). XGBoost is the model that gets saved to `best_model.pkl` and used by the deployed Streamlit app.
 
 ## Performance Analysis
 
 The tree models beat Logistic Regression by about 7 points of ROC-AUC. That makes sense - the relationships between audio features aren't linear (a super danceable song that's also 12 minutes long is probably not a hit), and linear models can't pick up on those interactions without explicit feature crosses. XGBoost edges out Random Forest by a tiny margin (0.0021), which suggests the boosting step is helping a little but not by much on this dataset.
+
+The MLP came in between LR and the tree models at 0.8824 ROC-AUC. About 6.5 points better than the linear baseline, but slightly worse than RF and XGBoost. That matches the general pattern I'd read about: on small dense tabular datasets like this, gradient-boosted trees usually beat neural networks. Trees can pick out individual feature thresholds cleanly; the MLP has to learn those same thresholds implicitly through smooth nonlinearities, which is harder when you don't have huge amounts of data or complex high-dimensional interactions to exploit. If the dataset were 10x bigger or had richer features (like raw audio waveforms instead of pre-extracted summary stats), the MLP would probably have a better shot.
 
 All three models have higher recall than precision. XGBoost has precision 0.788 and recall 0.861 - it's slightly trigger-happy about calling songs hits. If I wanted to balance them out, I could push the decision threshold above 0.5, trading some recall for precision.
 

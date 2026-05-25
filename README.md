@@ -24,6 +24,7 @@ writeup with the metrics, limitations, and reflection is in `report/REPORT.md`.
 
 ```
 pip install -r requirements.txt
+pip install torch  # only needed if you're going to retrain the mlp
 kaggle datasets download -d theoverman/the-spotify-hit-predictor-dataset -p data/ --unzip
 python src/preprocess.py
 python src/train.py

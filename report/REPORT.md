@@ -114,7 +114,7 @@ I picked 2 hidden layers because the input is only 32 features and the target is
 
 ## Metrics
 
-I evaluated all three models on the held-out 8,222-song test fold and reported five metrics:
+I evaluated all four models on the held-out 8,222-song test fold and reported five metrics:
 
 | Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
 |---|---|---|---|---|---|

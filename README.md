@@ -10,17 +10,17 @@ license: mit
 short_description: Predict Billboard Hot-100 hits from Spotify audio features
 ---
 
-# Spotify Hit Predictor
+# spotify hit predictor
 
-Final project for Advanced AI Models and Applications.
+final project for advanced ai models and applications.
 
-Predicts whether a song would have made the Billboard Hot-100 from its Spotify audio features. XGBoost, ROC-AUC ~0.89, trained on ~41k songs from the 60s through the 10s.
+predicts whether a song would have made the billboard hot-100 based on its spotify audio features. xgboost classifier, ~0.89 roc-auc on the test set, trained on ~41k songs from the 60s through the 10s.
 
-- Live demo: https://huggingface.co/spaces/vgutgutia/spotify-hit-predictor
-- Dataset: https://www.kaggle.com/datasets/theoverman/the-spotify-hit-predictor-dataset
-- Writeup: `report/REPORT.md`
+live demo: https://huggingface.co/spaces/vgutgutia/spotify-hit-predictor
 
-## Run locally
+writeup with the metrics, limitations, and reflection is in `report/REPORT.md`.
+
+## run it
 
 ```
 pip install -r requirements.txt

@@ -11,7 +11,6 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS_DIR = ROOT / "models"
-REPORT_DIR = ROOT / "report"
 
 NUMERIC_FEATURES = [
     "danceability", "energy", "loudness", "speechiness",
@@ -108,9 +107,8 @@ def load_artifacts():
     model = joblib.load(MODELS_DIR / "best_model.pkl")
     scaler = joblib.load(MODELS_DIR / "scaler.pkl")
     feature_columns = json.loads((MODELS_DIR / "feature_columns.json").read_text())
-    metrics = json.loads((MODELS_DIR / "metrics.json").read_text())
     explainer = shap.TreeExplainer(model)
-    return model, scaler, feature_columns, metrics, explainer
+    return model, scaler, feature_columns, explainer
 
 
 def build_feature_row(numeric, key, decade, feature_columns):
@@ -138,110 +136,79 @@ st.write(
     "Spotify audio features. Trained on ~41,000 songs from the 1960s to the 2010s."
 )
 
-model, scaler, feature_columns, metrics, explainer = load_artifacts()
+model, scaler, feature_columns, explainer = load_artifacts()
 
-tab1, tab2 = st.tabs(["Predict", "About"])
+example_choice = st.selectbox(
+    "Load an example song",
+    [START_FRESH] + list(EXAMPLE_SONGS.keys()),
+    key="example_choice",
+)
 
-with tab1:
-    example_choice = st.selectbox(
-        "Load an example song",
-        [START_FRESH] + list(EXAMPLE_SONGS.keys()),
-        key="example_choice",
-    )
+if (
+    example_choice != START_FRESH
+    and st.session_state.get("_last_loaded") != example_choice
+):
+    song = EXAMPLE_SONGS[example_choice]
+    for feat, val in song["numeric"].items():
+        st.session_state[f"s_{feat}"] = val
+    st.session_state["sliders_key"] = song["key"]
+    st.session_state["sliders_decade"] = song["decade"]
+    st.session_state["_last_loaded"] = example_choice
+    st.rerun()
 
-    if (
-        example_choice != START_FRESH
-        and st.session_state.get("_last_loaded") != example_choice
-    ):
-        song = EXAMPLE_SONGS[example_choice]
-        for feat, val in song["numeric"].items():
-            st.session_state[f"s_{feat}"] = val
-        st.session_state["sliders_key"] = song["key"]
-        st.session_state["sliders_decade"] = song["decade"]
-        st.session_state["_last_loaded"] = example_choice
-        st.rerun()
+with st.form("sliders_form"):
+    col1, col2 = st.columns(2)
+    numeric_values = {}
+    half = len(NUMERIC_FEATURES) // 2 + len(NUMERIC_FEATURES) % 2
+    left_feats = NUMERIC_FEATURES[:half]
+    right_feats = NUMERIC_FEATURES[half:]
 
-    with st.form("sliders_form"):
-        col1, col2 = st.columns(2)
-        numeric_values = {}
-        half = len(NUMERIC_FEATURES) // 2 + len(NUMERIC_FEATURES) % 2
-        left_feats = NUMERIC_FEATURES[:half]
-        right_feats = NUMERIC_FEATURES[half:]
+    for column, feats in [(col1, left_feats), (col2, right_feats)]:
+        with column:
+            for feat in feats:
+                lo, hi, default = SLIDER_RANGES[feat]
+                if feat in ("mode", "time_signature", "sections", "duration_ms"):
+                    numeric_values[feat] = st.slider(
+                        feat, int(lo), int(hi), int(default), key=f"s_{feat}"
+                    )
+                else:
+                    numeric_values[feat] = st.slider(
+                        feat, float(lo), float(hi), float(default), key=f"s_{feat}"
+                    )
 
-        for column, feats in [(col1, left_feats), (col2, right_feats)]:
-            with column:
-                for feat in feats:
-                    lo, hi, default = SLIDER_RANGES[feat]
-                    if feat in ("mode", "time_signature", "sections", "duration_ms"):
-                        numeric_values[feat] = st.slider(
-                            feat, int(lo), int(hi), int(default), key=f"s_{feat}"
-                        )
-                    else:
-                        numeric_values[feat] = st.slider(
-                            feat, float(lo), float(hi), float(default), key=f"s_{feat}"
-                        )
-
-        col_k, col_d = st.columns(2)
-        with col_k:
-            key_choice = st.selectbox(
-                "key",
-                list(range(12)),
-                key="sliders_key",
-                format_func=lambda i: KEY_NAMES[i],
-            )
-        with col_d:
-            decade_choice = st.selectbox("decade", DECADES, key="sliders_decade")
-
-        submitted = st.form_submit_button("Predict")
-
-    if submitted:
-        raw_df = build_feature_row(
-            numeric_values, key_choice, decade_choice, feature_columns
+    col_k, col_d = st.columns(2)
+    with col_k:
+        key_choice = st.selectbox(
+            "key",
+            list(range(12)),
+            key="sliders_key",
+            format_func=lambda i: KEY_NAMES[i],
         )
-        proba, contribs = predict_and_explain(
-            raw_df, model, scaler, feature_columns, explainer
-        )
+    with col_d:
+        decade_choice = st.selectbox("decade", DECADES, key="sliders_decade")
 
-        if proba >= 0.5:
-            st.success(f"HIT - {proba * 100:.1f}% hit probability")
-        else:
-            st.error(f"FLOP - {proba * 100:.1f}% hit probability")
-        st.progress(proba)
+    submitted = st.form_submit_button("Predict")
 
-        st.subheader("Top contributing features (SHAP)")
-        top_idx = contribs.abs().sort_values(ascending=False).head(8).index
-        top = contribs.loc[top_idx]
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.barh(top.index[::-1], top.values[::-1])
-        ax.axvline(0, color="black", linewidth=0.5)
-        ax.set_xlabel("SHAP value (positive = toward hit)")
-        st.pyplot(fig)
-        plt.close(fig)
-
-with tab2:
-    st.header("About")
-    st.write(
-        "XGBoost classifier trained on the Spotify Hit Predictor dataset "
-        "(~41,000 songs from the 1960s through the 2010s, perfectly balanced "
-        "hit vs flop). 14 numeric audio features plus one-hot encodings of "
-        "key and decade = 32 features after preprocessing."
+if submitted:
+    raw_df = build_feature_row(
+        numeric_values, key_choice, decade_choice, feature_columns
+    )
+    proba, contribs = predict_and_explain(
+        raw_df, model, scaler, feature_columns, explainer
     )
 
-    st.subheader("Model comparison (test set)")
-    metric_rows = pd.DataFrame(metrics["models"]).set_index("model").round(4)
-    st.dataframe(metric_rows)
-    st.write(f"Winner: {metrics['winner']} (selected by {metrics['selection_metric']})")
+    if proba >= 0.5:
+        st.success(f"HIT - {proba * 100:.1f}% hit probability")
+    else:
+        st.error(f"FLOP - {proba * 100:.1f}% hit probability")
+    st.progress(proba)
 
-    st.subheader("Feature importance")
-    fi_path = REPORT_DIR / "feature_importance.png"
-    if fi_path.exists():
-        st.image(str(fi_path))
-
-    st.subheader("Limitations")
-    st.write(
-        "- Billboard Hot-100 only, US-centric\n"
-        "- Audio features don't capture artist fame, marketing, music videos, etc.\n"
-        "- Dataset cuts off at 2019\n"
-        "- Originally had a Spotify URL mode but Spotify deprecated the "
-        "audio-features API for new dev apps in Nov 2024"
-    )
+    st.subheader("Top contributing features (SHAP)")
+    top_idx = contribs.abs().sort_values(ascending=False).head(8).index
+    top = contribs.loc[top_idx]
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.barh(top.index[::-1], top.values[::-1])
+    ax.axvline(0, color="black", linewidth=0.5)
+    ax.set_xlabel("SHAP value (positive = toward hit)")
+    st.pyplot(fig)
+    plt.close(fig)

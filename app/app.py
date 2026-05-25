@@ -293,6 +293,13 @@ with tab_url:
         "The app pulls the song's actual audio features from Spotify, then runs the "
         "same model on them."
     )
+    st.warning(
+        "⚠️  **Heads up**: Spotify deprecated the `audio-features` endpoint for "
+        "developer apps registered after November 2024. If your Spotify app isn't "
+        "in extended-quota mode, this tab will return a 403 — that's a Spotify "
+        "policy issue, not a bug in the app. The **Sliders** tab works without "
+        "any external API."
+    )
 
     # st.secrets raises if no secrets.toml exists at all. Fall back to env
     # vars so HF Spaces' Docker SDK (which exposes secrets as env vars rather
@@ -332,7 +339,19 @@ with tab_url:
                     with st.spinner("Fetching features from Spotify…"):
                         info = fetch_spotify_features(track_id, client_id, client_secret)
                 except Exception as e:
-                    st.error(f"Spotify API error: {e}")
+                    msg = str(e)
+                    if "403" in msg:
+                        st.error(
+                            "Spotify returned **403 Forbidden** on the "
+                            "`audio-features` endpoint. This means your "
+                            "Spotify developer app doesn't have access to "
+                            "that endpoint — almost certainly because Spotify "
+                            "deprecated it for new apps in Nov 2024. There's "
+                            "nothing wrong with your credentials. Use the "
+                            "**Sliders** tab to design a song manually instead."
+                        )
+                    else:
+                        st.error(f"Spotify API error: {e}")
                 else:
                     st.subheader(f"🎶  {info['track_name']}")
                     st.caption(

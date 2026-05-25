@@ -138,7 +138,7 @@ The tree models beat Logistic Regression by about 7 points of ROC-AUC. That make
 
 The MLP came in between LR and the tree models at 0.8824 ROC-AUC. About 6.5 points better than the linear baseline, but slightly worse than RF and XGBoost. That matches the general pattern I'd read about: on small dense tabular datasets like this, gradient-boosted trees usually beat neural networks. Trees can pick out individual feature thresholds cleanly; the MLP has to learn those same thresholds implicitly through smooth nonlinearities, which is harder when you don't have huge amounts of data or complex high-dimensional interactions to exploit. If the dataset were 10x bigger or had richer features (like raw audio waveforms instead of pre-extracted summary stats), the MLP would probably have a better shot.
 
-All three models have higher recall than precision. XGBoost has precision 0.788 and recall 0.861 - it's slightly trigger-happy about calling songs hits. If I wanted to balance them out, I could push the decision threshold above 0.5, trading some recall for precision.
+All four models have higher recall than precision. XGBoost has precision 0.788 and recall 0.861 - it's slightly trigger-happy about calling songs hits. If I wanted to balance them out, I could push the decision threshold above 0.5, trading some recall for precision.
 
 The feature importance chart (in `report/feature_importance.png`) tells an interesting story:
 
@@ -165,7 +165,7 @@ The fact that the decade features show up so high in feature importance confirms
 
 ## Reflection
 
-The biggest thing I learned is that the model is the easy part. Training was maybe an hour of scikit-learn and xgboost on defaults, and it got to ~89% ROC-AUC on the first try with no tuning. The hard part was everything around it: making sure the feature vector at inference time matches the column order the model was trained on, fixing the Streamlit form so the page didn't flicker every time someone dragged a slider, getting the Hugging Face Docker deploy to accept binary files (it wanted LFS), and dealing with Spotify deprecating the API my whole URL mode depended on right after I'd built it.
+The biggest thing I learned is that the model is the easy part. Training the four models (LR, RF, XGBoost, and the PyTorch MLP) took maybe an hour total on defaults, and XGBoost hit ~89% ROC-AUC on the first try with no tuning. The hard part was everything around it: making sure the feature vector at inference time matches the column order the model was trained on, fixing the Streamlit form so the page didn't flicker every time someone dragged a slider, getting the Hugging Face Docker deploy to accept binary files (it wanted LFS), and dealing with Spotify deprecating the API my whole URL mode depended on right after I'd built it.
 
 Two concrete things I'll take with me:
 
@@ -173,6 +173,6 @@ Two concrete things I'll take with me:
 
 2. Fit the scaler on the training fold only. It's a one-line difference but fitting on the full dataset before splitting leaks test statistics into training, and inflates the metrics by an amount you'll never catch unless you know to look for it.
 
-If I had more time I'd tune the XGBoost hyperparameters with `RandomizedSearchCV` (probably worth another point or two of ROC-AUC), try a small neural network for comparison, and calibrate the probabilities so that "80% hit probability" actually corresponds to about 80% of songs at that score being hits.
+If I had more time I'd tune the XGBoost and MLP hyperparameters with `RandomizedSearchCV` (probably worth another point or two of ROC-AUC each), try a bigger MLP with more layers to see if the gap with XGBoost closes, and calibrate the probabilities so that "80% hit probability" actually corresponds to about 80% of songs at that score being hits.
 
 But the lesson I want to remember is that a working 0.89 ROC-AUC classifier deployed where anyone can use it is more useful than a 0.95 ROC-AUC notebook sitting on my laptop.

@@ -18,8 +18,6 @@ predicts whether a song would have made the billboard hot-100 based on its spoti
 
 live demo: https://huggingface.co/spaces/vgutgutia/spotify-hit-predictor
 
-writeup with the metrics, limitations, and reflection is in `report/REPORT.md`.
-
 ## run it
 
 ```

@@ -14,7 +14,8 @@ import torch.nn as nn
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+    accuracy_score, f1_score, precision_score, recall_score, roc_auc_score,
+    roc_curve,
 )
 from torch.utils.data import DataLoader, TensorDataset
 from xgboost import XGBClassifier
@@ -49,7 +50,7 @@ class MLP(nn.Module):
 def score_sklearn(name, model, X_test, y_test):
     pred = model.predict(X_test)
     proba = model.predict_proba(X_test)[:, 1]
-    return _metrics_row(name, y_test, pred, proba)
+    return _metrics_row(name, y_test, pred, proba), proba
 
 
 def _metrics_row(name, y_test, pred, proba):
@@ -96,7 +97,33 @@ def train_mlp(X_train, y_train, X_test, y_test, n_epochs=40, batch_size=256):
     with torch.no_grad():
         proba = torch.sigmoid(model(X_test_t)).numpy().flatten()
     pred = (proba >= 0.5).astype(int)
-    return model, _metrics_row("MLP", y_test, pred, proba)
+    return model, _metrics_row("MLP", y_test, pred, proba), proba
+
+
+def plot_roc_curves(probas_dict, y_test, out_path):
+    colors = {
+        "LogisticRegression": "#1f77b4",
+        "RandomForest": "#2ca02c",
+        "XGBoost": "#ff7f0e",
+        "MLP": "#d62728",
+    }
+    fig, ax = plt.subplots(figsize=(7, 6))
+    for name, proba in probas_dict.items():
+        fpr, tpr, _ = roc_curve(y_test, proba)
+        auc = roc_auc_score(y_test, proba)
+        ax.plot(fpr, tpr, label=f"{name} (AUC = {auc:.3f})",
+                color=colors.get(name), linewidth=2)
+    ax.plot([0, 1], [0, 1], "k--", lw=1, alpha=0.4, label="random (AUC = 0.5)")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.set_title("ROC curves on test set (8,222 songs)")
+    ax.legend(loc="lower right", framealpha=0.95)
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1.01])
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=130)
+    plt.close()
 
 
 def feature_importance_plot(name, model, feature_columns, out_path):
@@ -138,15 +165,21 @@ def main():
 
     results = []
     fitted = {}
+    probas = {}
     for name, model in tree_models.items():
         print("fitting", name)
         model.fit(X_train, y_train)
-        results.append(score_sklearn(name, model, X_test, y_test))
+        row, proba = score_sklearn(name, model, X_test, y_test)
+        results.append(row)
+        probas[name] = proba
         fitted[name] = model
 
     print("fitting MLP")
-    mlp_model, mlp_row = train_mlp(X_train, y_train.astype(np.float32), X_test, y_test)
+    mlp_model, mlp_row, mlp_proba = train_mlp(
+        X_train, y_train.astype(np.float32), X_test, y_test
+    )
     results.append(mlp_row)
+    probas["MLP"] = mlp_proba
 
     df = pd.DataFrame(results).set_index("model")
     print(df.round(4).to_string())
@@ -170,6 +203,7 @@ def main():
         winner_name, winner_model, prep.feature_columns,
         REPORT_DIR / "feature_importance.png",
     )
+    plot_roc_curves(probas, y_test, ROOT / "roc_curves.png")
 
 
 if __name__ == "__main__":
